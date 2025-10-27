@@ -2,7 +2,8 @@
 node_modules/
 pnpm-lock.yaml
 yarn.lock
-package-lock.json
+# package-lock.json - Required for CI/CD
+# package-lock.json
 
 ## Environment
 .env
