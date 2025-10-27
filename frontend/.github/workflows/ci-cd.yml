@@ -3,13 +3,8 @@ name: CI/CD Pipeline
 on:
   push:
     branches: [ main, develop ]
-    paths:
-      - 'frontend/**'
-      - '.github/workflows/ci-cd.yml'
   pull_request:
     branches: [ main ]
-    paths:
-      - 'frontend/**'
   workflow_dispatch:
 
 env:
