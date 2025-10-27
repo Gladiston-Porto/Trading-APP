@@ -1,0 +1,758 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== AUTENTICAÇÃO ====================
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String   // bcrypt hash
+  name      String?
+  role      UserRole @default(TRADER)
+  active    Boolean  @default(true)
+  
+  // Relations
+  strategies      StrategyConfig[]
+  signals         Signal[]
+  positions       Position[]
+  portfolios      Portfolio[]
+  alerts          Alert[]
+  auditLogs       AuditLog[]
+  backtestRuns    BacktestRun[]
+  watchlists      Watchlist[]
+  paperTrades     PaperTrade[]
+  paperSessions   PaperSession[]
+  backtests       Backtest[]
+  strategyMgmt    Strategy[]  // Fase 2k: Strategy Manager
+  portfolioMgmt   PortfolioManagement[]  // Fase 2l: Portfolio Manager
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([email])
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN   // Gerencia sistema, usuários, configurações
+  TRADER  // Acesso completo a trading, análise, posições
+  VIEW    // Somente leitura (visualizar signals, positions, reports)
+}
+
+// ==================== ATIVOS ====================
+model Ticker {
+  id        String   @id @default(cuid())
+  symbol    String   @unique
+  exchange  Exchange @default(B3)
+  currency  String   @default("BRL")
+  name      String?
+  sector    String?
+  active    Boolean  @default(true)
+  
+  // Relations
+  candles   Candle[]
+  signals   Signal[]
+  positions Position[]
+  watchlistItems WatchlistItem[]
+  backtestRuns BacktestRun[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([symbol])
+  @@index([exchange])
+  @@map("tickers")
+}
+
+enum Exchange {
+  B3    // Brasil (Bovespa)
+  US    // EUA (NYSE, NASDAQ, etc.)
+  CRYPTO // Futuro
+}
+
+// ==================== DADOS DE MERCADO ====================
+model Candle {
+  id        String   @id @default(cuid())
+  ticker    Ticker   @relation(fields: [tickerId], references: [id], onDelete: Cascade)
+  tickerId  String
+  
+  timeframe Timeframe // 1d, 5m, 15m, etc
+  ts        DateTime  // Timestamp do candle (UTC)
+  
+  open      Float
+  high      Float
+  low       Float
+  close     Float
+  volume    Float
+  
+  provider  DataProvider // Brapi, Yahoo, XP, etc
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([tickerId, timeframe, ts])
+  @@index([tickerId, timeframe])
+  @@index([ts])
+  @@map("candles")
+}
+
+enum Timeframe {
+  D1  @map("1d")   // Diário
+  H1  @map("1h")   // Horário
+  M15 @map("15m")  // 15 minutos
+  M5  @map("5m")   // 5 minutos
+}
+
+enum DataProvider {
+  BRAPI      // Brasil (gratuito)
+  YAHOO      // EUA e Brasil (gratuito)
+  XP         // B3 intraday (pago ~R$50/mês)
+  MOCK       // Para testes e demo
+}
+
+// ==================== ESTRATÉGIAS ====================
+model StrategyConfig {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  
+  name      String
+  type      StrategyType @default(SWING)
+  active    Boolean  @default(true)
+  
+  // Configurações (JSON para flexibilidade)
+  params    Json     @default("{}")
+  timeframesJson String @default("1d") // JSON array: ["1d", "5m", "15m"]
+  
+  // Relations
+  signals   Signal[]
+  backtestRuns BacktestRun[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("strategy_configs")
+}
+
+enum StrategyType {
+  SWING      // Reversão em dias/semanas
+  DAYTRADE   // Trade curto, mesmo dia
+  BREAKOUT   // Rompimento de resistência
+  MEAN_REV   // Reversão à média
+}
+
+// ==================== SINAIS ====================
+model Signal {
+  id        String   @id @default(cuid())
+  ticker    Ticker   @relation(fields: [tickerId], references: [id], onDelete: Cascade)
+  tickerId  String
+  
+  strategy  StrategyConfig @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+  strategyId String
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  
+  side      Side     // BUY ou SELL
+  confidence Float   // 0-100
+  price     Float    // Preço no momento do sinal
+  sl        Float    // Stop loss
+  tp        Float    // Take profit
+  rr        Float    // Risk/Reward ratio
+  timeframe Timeframe
+  
+  status    SignalStatus @default(NEW)
+  rationale Json     // { "indicators": {...}, "patterns": {...}, "volume": {...} }
+  
+  // Relação com posição (opcional: um sinal pode gerar uma posição)
+  position  Position?
+  
+  createdAt DateTime @default(now())
+  expiresAt DateTime? // Sinal expira se não triggerado
+  triggeredAt DateTime?
+  
+  @@index([tickerId])
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("signals")
+}
+
+enum Side {
+  BUY
+  SELL
+}
+
+enum SignalStatus {
+  NEW        // Sinal recém-criado
+  TRIGGERED  // Entrada executada
+  EXPIRED    // Sinal expirou
+  CANCELLED  // Cancelado manualmente
+}
+
+// ==================== POSIÇÕES ====================
+model Position {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  
+  ticker    Ticker   @relation(fields: [tickerId], references: [id], onDelete: Cascade)
+  tickerId  String
+  
+  // Sinal que originou esta posição (opcional)
+  signal    Signal?  @relation(fields: [signalId], references: [id], onDelete: SetNull)
+  signalId  String?  @unique
+  
+  quantity  Float    // Qtd de ações
+  avgPrice  Float    // Preço médio de entrada
+  side      Side     // BUY ou SELL
+  
+  sl        Float    // Stop loss inicial
+  tp        Float    // Take profit inicial
+  trailing  Json?    // { "trailingPct": 2, "currentSl": 50.5 }
+  
+  status    PositionStatus @default(OPEN)
+  pnl       Float?   // Lucro/Prejuízo ao fechar
+  pnlPct    Float?   // Retorno %
+  
+  openedAt  DateTime @default(now())
+  closedAt  DateTime?
+  
+  // Notas operacionais
+  notes     String?
+  
+  // Relations
+  orders    Order[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([status])
+  @@index([tickerId])
+  @@map("positions")
+}
+
+enum PositionStatus {
+  OPEN      // Posição ativa
+  CLOSED    // Posição fechada (P&L realizado)
+  PARTIAL   // Posição parcialmente fechada
+}
+
+model Order {
+  id        String   @id @default(cuid())
+  position  Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  positionId String
+  
+  type      OrderType  // MKT, LMT, STOP
+  side      Side
+  price     Float?     // Preço para LMT/STOP
+  quantity  Float
+  
+  status    OrderStatus @default(PENDING)
+  
+  broker    Json?      // { "brokerId": "...", "status": "..." } para integração real
+  
+  placedAt  DateTime @default(now())
+  filledAt  DateTime?
+  
+  @@index([positionId])
+  @@map("orders")
+}
+
+enum OrderType {
+  MKT        // Market
+  LMT        // Limit
+  STOP       // Stop loss
+}
+
+enum OrderStatus {
+  PENDING   // Aguardando execução
+  FILLED    // Executada
+  CANCELLED // Cancelada
+  FAILED    // Falha na execução
+}
+
+// ==================== CARTEIRA ====================
+model Portfolio {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String   @unique
+  
+  name      String   @default("Minha Carteira")
+  baseCurrency String @default("BRL")
+  
+  capital   Float    // Capital inicial
+  
+  // Configurações de risco
+  riskPerTradePct Float @default(1.0)     // 1% por trade
+  dailyLossLimitPct Float @default(-3.0)  // -3% limite diário
+  
+  // KPIs atualizados diariamente
+  totalPnL  Float    @default(0)
+  totalPnLPct Float  @default(0)
+  winCount  Int      @default(0)
+  lossCount Int      @default(0)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("portfolios")
+}
+
+// ==================== ALERTAS ====================
+model Alert {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  
+  name      String   @db.VarChar(255)
+  description String? @db.Text
+  
+  type      AlertTypeEnum
+  priority  AlertPriorityEnum @default(MEDIUM)
+  
+  // Channels (JSON: array of channels)
+  channels  Json  // ["TELEGRAM", "EMAIL"]
+  
+  // Channel-specific configurations (JSON)
+  channelConfigs Json  // { TELEGRAM: {...}, EMAIL: {...} }
+  
+  // Alert conditions (JSON)
+  condition Json?  // { ticker: "PETR4", priceAbove: 25.5, ... }
+  
+  // Quiet hours (JSON: { start: "22:00", end: "08:00" })
+  quietHours Json?
+  
+  enabled   Boolean   @default(true)
+  
+  sendCount Int       @default(0)
+  lastSent  DateTime?
+  
+  // Tags for organization
+  tags      Json      @default("[]")
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([type])
+  @@index([priority])
+  @@index([enabled])
+  @@map("alerts")
+}
+
+enum AlertChannelEnum {
+  TELEGRAM
+  EMAIL
+  PUSH
+  WEBHOOK
+  SMS
+  SLACK
+}
+
+enum AlertStatusEnum {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+  SCHEDULED
+}
+
+enum AlertTypeEnum {
+  SIGNAL_BUY
+  SIGNAL_SELL
+  POSITION_OPENED
+  POSITION_CLOSED
+  TP_HIT
+  SL_HIT
+  PORTFOLIO_MILESTONE
+  HIGH_VOLATILITY
+  BACKTEST_COMPLETE
+  STRATEGY_UPDATED
+  RISK_THRESHOLD_HIT
+  DIVIDEND_UPCOMING
+  EARNINGS_REPORT
+  MARKET_OPENING
+  MARKET_CLOSING
+  SYSTEM_ERROR
+  SYSTEM_WARNING
+  SYSTEM_INFO
+  MAINTENANCE_ALERT
+  PERFORMANCE_ALERT
+}
+
+enum AlertPriorityEnum {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AlertStatus {
+  PENDING    // Aguardando envio
+  SENT       // Enviado com sucesso
+  FAILED     // Erro no envio
+  SKIPPED    // Pulado (ex: usuário desabilitou)
+}
+
+// ==================== AUDITORIA ====================
+model AuditLog {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  
+  action    AuditAction
+  entity    String     // Nome da entidade (Position, Signal, StrategyConfig, etc)
+  entityId  String     // ID da entidade
+  
+  before    Json?      // Estado anterior
+  after     Json?      // Estado novo
+  
+  details   String?    // Descrição adicional
+  
+  ts        DateTime @default(now())
+  
+  @@index([userId])
+  @@index([entity])
+  @@index([ts])
+  @@map("audit_logs")
+}
+
+enum AuditAction {
+  CREATE     // Criação
+  UPDATE     // Atualização
+  DELETE     // Deleção
+  EXECUTE    // Execução (ex: entrada, saída)
+}
+
+// ==================== BACKTESTING ====================
+model Backtest {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  
+  ticker    String   // PETR4, VALE5, etc
+  startDate DateTime
+  endDate   DateTime
+  
+  strategy  String   // RSI_CROSSOVER, MACD, etc
+  parameters Json     // { "rsi_period": 14, "overbought": 70, ... }
+  
+  status    BacktestStatus @default(PENDING)
+  
+  // Resultados
+  totalTrades    Int?
+  winningTrades  Int?
+  loosingTrades  Int?
+  winRate        Float?
+  profitFactor   Float?
+  sharpeRatio    Float?
+  sortinoRatio   Float?
+  calmarRatio    Float?
+  maxDrawdown    Float?
+  totalReturn    Float?
+  cagr           Float?
+  
+  trades        Json?    // Array de trades simulados
+  executionTime Int?     // em milisegundos
+  error         String?  // Mensagem de erro se falhou
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([status])
+  @@index([ticker])
+  @@map("backtests")
+}
+
+enum BacktestStatus {
+  PENDING    // Aguardando execução
+  RUNNING    // Executando
+  COMPLETED  // Completo
+  FAILED     // Erro na execução
+}
+
+model BacktestRun {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  
+  strategy  StrategyConfig @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+  strategyId String
+  
+  ticker    Ticker   @relation(fields: [tickerId], references: [id], onDelete: Cascade)
+  tickerId  String
+  
+  timeframe Timeframe
+  sampleFrom DateTime
+  sampleTo   DateTime
+  
+  // Resultados
+  metrics   Json     // { "winRate": 0.65, "payoff": 2.1, "mdd": -0.08, "cagr": 0.25, ... }
+  trades    Json     // Array de trades simulados
+  
+  createdAt DateTime @default(now())
+  
+  @@index([userId])
+  @@index([strategyId])
+  @@map("backtest_runs")
+}
+
+// ==================== WATCHLIST ====================
+model Watchlist {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  
+  name      String
+  
+  items     WatchlistItem[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("watchlists")
+}
+
+model WatchlistItem {
+  id        String   @id @default(cuid())
+  watchlist Watchlist @relation(fields: [watchlistId], references: [id], onDelete: Cascade)
+  watchlistId String
+  
+  ticker    Ticker   @relation(fields: [tickerId], references: [id], onDelete: Cascade)
+  tickerId  String
+  
+  addedAt   DateTime @default(now())
+  
+  @@unique([watchlistId, tickerId])
+  @@map("watchlist_items")
+}
+
+// ==================== PAPER TRADING ====================
+model PaperTrade {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  
+  ticker    String   // PETR4, VALE5, etc (não FK para flexibilidade)
+  
+  entryPrice Float
+  entryTime  DateTime
+  direction  Side     // BUY ou SELL
+  
+  shares    Int
+  
+  stopLoss   Float
+  takeProfit Float
+  
+  positionSize Float  // Entry price × shares
+  riskAmount   Float  // |Entry - SL| × shares
+  
+  status    PaperTradeStatus @default(OPEN)
+  
+  exitPrice  Float?
+  exitTime   DateTime?
+  exitType   String?  // TP, SL, MANUAL
+  
+  profit     Float?
+  profitPct  Float?
+  
+  // Metadata
+  signal     String?  // ID do sinal que gerou (opcional)
+  notes      String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([status])
+  @@index([entryTime])
+  @@map("paper_trades")
+}
+
+enum PaperTradeStatus {
+  OPEN       // Aberto
+  CLOSED_TP  // Fechado em TP
+  CLOSED_SL  // Fechado em SL
+  CLOSED_MAN // Fechado manualmente
+}
+
+model PaperSession {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  
+  startDate  DateTime
+  endDate    DateTime?
+  
+  initialCapital Float
+  finalCapital   Float?
+  
+  // Métricas de performance
+  totalTrades    Int      @default(0)
+  winningTrades  Int      @default(0)
+  loosingTrades  Int      @default(0)
+  
+  totalPnL       Float    @default(0)
+  winRate        Float?   // %
+  profitFactor   Float?   // Wins / Losses
+  
+  largestWin     Float?
+  largestLoss    Float?
+  averageWin     Float?
+  averageLoss    Float?
+  
+  sharpeRatio    Float?
+  sortinoRatio   Float?
+  calmarRatio    Float?
+  maxDrawdown    Float?
+  
+  active         Boolean  @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([startDate])
+  @@map("paper_sessions")
+}
+
+// ==================== STRATEGY MANAGER ====================
+enum StrategyStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum StrategyTypeEnum {
+  RSI_CROSSOVER
+  MACD
+  BOLLINGER
+  SMA_CROSSOVER
+  CUSTOM
+}
+
+enum RiskProfile {
+  CONSERVATIVE   // Max DD: 15%, Min Sharpe: 0.5
+  MODERATE       // Max DD: 25%, Min Sharpe: 0.3
+  AGGRESSIVE     // Max DD: 40%, Min Sharpe: 0.0
+}
+
+model Strategy {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  
+  name      String   @db.VarChar(255)
+  description String? @db.Text
+  
+  type      StrategyTypeEnum
+  tickers   Json     // ["PETR4", "VALE3", "ABEV3"]
+  parameters Json     // { "rsi_period": 14, "overbought": 70, "oversold": 30 }
+  
+  riskProfile RiskProfile @default(MODERATE)
+  minWinRate Float @default(40.0)  // Mínimo aceitável %
+  minSharpeRatio Float @default(0.0)
+  maxDrawdown Float @default(25.0)  // Máximo aceitável %
+  
+  status    StrategyStatus @default(DRAFT)
+  tags      Json     // ["profitable", "stable", "low-dd"]
+  
+  backtestCount Int @default(0)
+  averageWinRate Float?
+  averageSharpeRatio Float?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([status])
+  @@index([type])
+  @@map("strategies")
+}
+
+// ==================== PORTFOLIO MANAGER ====================
+enum PortfolioAllocationStrategy {
+  EQUAL_WEIGHT
+  RISK_PARITY
+  CUSTOM
+  MOMENTUM_BASED
+  VOLATILITY_INVERSE
+}
+
+enum PortfolioRebalanceFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+  MANUAL
+}
+
+enum PortfolioStatusEnum {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+model PortfolioManagement {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  
+  name      String   @db.VarChar(255)
+  description String? @db.Text
+  
+  initialCapital Float
+  currentValue   Float
+  totalReturn    Float @default(0)
+  returnPercentage Float @default(0)
+  
+  currency  String   @default("USD")
+  riskTolerance String @default("MODERATE")  // LOW, MEDIUM, HIGH
+  
+  status    PortfolioStatusEnum @default(DRAFT)
+  allocationStrategy PortfolioAllocationStrategy @default(EQUAL_WEIGHT)
+  
+  // Allocation data (JSON: array of allocations)
+  allocationData Json  // [{ strategyId, allocation, currentValue, targetValue }, ...]
+  
+  // Rebalancing
+  rebalanceFrequency PortfolioRebalanceFrequency @default(MONTHLY)
+  rebalanceThreshold Float?
+  lastRebalanceDate  DateTime?
+  
+  // Risk settings
+  maxDrawdown       Float?
+  maxExposure       Float?
+  stopLossPercentage Float?
+  
+  // Tags for organization
+  tags      Json     @default("[]")
+  
+  numberOfStrategies Int @default(0)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([status])
+  @@index([allocationStrategy])
+  @@map("portfolio_management")
+}

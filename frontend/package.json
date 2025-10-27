@@ -1,0 +1,55 @@
+{
+  "name": "app-trade-frontend",
+  "version": "1.0.0",
+  "description": "Frontend React + Vite + Tailwind para sistema de trading/swing",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:run": "vitest run",
+    "test:coverage": "vitest --coverage",
+    "lint": "eslint src --ext .ts,.tsx",
+    "format": "prettier --write src",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "axios": "^1.4.0",
+    "clsx": "^2.0.0",
+    "date-fns": "^2.30.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.14.0",
+    "recharts": "^2.15.4",
+    "socket.io-client": "^4.6.0",
+    "tailwindcss": "^3.3.0",
+    "zustand": "^4.3.8"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "@vitest/ui": "^3.2.4",
+    "autoprefixer": "^10.4.14",
+    "eslint": "^8.40.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "jsdom": "^26.1.0",
+    "postcss": "^8.4.24",
+    "prettier": "^3.0.0",
+    "tailwindcss": "^3.3.0",
+    "terser": "^5.44.0",
+    "typescript": "^5.0.0",
+    "vite": "^6.4.1",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

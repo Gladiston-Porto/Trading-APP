@@ -1,0 +1,357 @@
+version: '3.9'
+
+services:
+  # ============================================================================
+  # FRONTEND SERVICE
+  # ============================================================================
+  frontend:
+    image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_USERNAME}/trading-app-frontend:${IMAGE_TAG:-latest}
+    container_name: trading-app-frontend-prod
+    
+    ports:
+      - "80:80"
+    
+    environment:
+      # Node environment
+      NODE_ENV: production
+      
+      # API Configuration
+      VITE_API_URL: ${API_URL:-http://backend:3333}
+      VITE_API_TIMEOUT: ${API_TIMEOUT:-30000}
+      
+      # Feature Flags
+      VITE_ENABLE_CHARTS: "true"
+      VITE_ENABLE_THEME: "true"
+      VITE_ENABLE_NOTIFICATIONS: "true"
+      VITE_ENABLE_EXPORT: "true"
+      
+      # Analytics
+      VITE_ANALYTICS_ENABLED: ${ANALYTICS_ENABLED:-true}
+      VITE_ANALYTICS_ENDPOINT: ${ANALYTICS_ENDPOINT}
+      VITE_SENTRY_DSN: ${SENTRY_DSN}
+      
+      # App Configuration
+      VITE_APP_NAME: Trading App
+      VITE_APP_VERSION: ${APP_VERSION:-1.0.0}
+      VITE_APP_ENVIRONMENT: production
+      
+      # Security
+      VITE_CSP_ENABLED: "true"
+      VITE_SECURE_COOKIES: "true"
+    
+    # Resource limits for production
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '1'
+          memory: 512M
+      
+      # Update policy for rolling updates
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+      
+      # Restart policy
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 60s
+    
+    # Health check with strict timeout
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    
+    # Restart policy
+    restart: always
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+        labels: "service=frontend,env=production"
+    
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    
+    cap_drop:
+      - ALL
+    
+    cap_add:
+      - NET_BIND_SERVICE
+    
+    # Read-only filesystem (except runtime directories)
+    read_only_root_filesystem: false
+    
+    tmpfs:
+      - /var/run
+      - /var/cache/nginx
+      - /var/log/nginx
+    
+    # Network configuration
+    networks:
+      - trading-app-network
+    
+    # Labels for monitoring and orchestration
+    labels:
+      app: trading-app-frontend
+      version: ${APP_VERSION:-1.0.0}
+      environment: production
+      monitored: "true"
+
+  # ============================================================================
+  # REVERSE PROXY / SSL TERMINATION (Optional - if using separate Nginx)
+  # ============================================================================
+  
+  # nginx-proxy:
+  #   image: nginx:alpine
+  #   container_name: trading-app-reverse-proxy
+  #   ports:
+  #     - "443:443"
+  #     - "80:80"
+  #   volumes:
+  #     - ./nginx-production.conf:/etc/nginx/nginx.conf:ro
+  #     - ./ssl:/etc/nginx/ssl:ro
+  #   depends_on:
+  #     - frontend
+  #   networks:
+  #     - trading-app-network
+  #   restart: always
+
+  # ============================================================================
+  # BACKEND SERVICE (Optional - if containerized)
+  # ============================================================================
+  
+  # backend:
+  #   image: ${DOCKER_REGISTRY:-docker.io}/${DOCKER_USERNAME}/trading-app-backend:${IMAGE_TAG:-latest}
+  #   container_name: trading-app-backend-prod
+  #   
+  #   ports:
+  #     - "3333:3333"
+  #   
+  #   environment:
+  #     NODE_ENV: production
+  #     PORT: 3333
+  #     DATABASE_URL: ${DATABASE_URL}
+  #     REDIS_URL: redis://redis:6379
+  #     JWT_SECRET: ${JWT_SECRET}
+  #     API_KEY: ${API_KEY}
+  #   
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #   
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:3333/health"]
+  #     interval: 30s
+  #     timeout: 5s
+  #     retries: 3
+  #   
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '2'
+  #         memory: 1G
+  #       reservations:
+  #         cpus: '1'
+  #         memory: 512M
+  #   
+  #   restart: always
+  #   
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "100m"
+  #       max-file: "10"
+  #   
+  #   networks:
+  #     - trading-app-network
+
+  # ============================================================================
+  # REDIS CACHE (Optional)
+  # ============================================================================
+  
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: trading-app-redis-prod
+  #   
+  #   command:
+  #     - redis-server
+  #     - --appendonly
+  #     - "yes"
+  #     - --requirepass
+  #     - ${REDIS_PASSWORD}
+  #   
+  #   ports:
+  #     - "6379:6379"
+  #   
+  #   volumes:
+  #     - redis-data:/data
+  #   
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 30s
+  #     timeout: 3s
+  #     retries: 3
+  #   
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '1'
+  #         memory: 512M
+  #   
+  #   restart: always
+  #   
+  #   networks:
+  #     - trading-app-network
+
+  # ============================================================================
+  # MONITORING & LOGGING (Optional)
+  # ============================================================================
+  
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   container_name: trading-app-prometheus
+  #   
+  #   volumes:
+  #     - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  #     - prometheus-data:/prometheus
+  #   
+  #   command:
+  #     - '--config.file=/etc/prometheus/prometheus.yml'
+  #     - '--storage.tsdb.path=/prometheus'
+  #   
+  #   ports:
+  #     - "9090:9090"
+  #   
+  #   networks:
+  #     - trading-app-network
+
+  # grafana:
+  #   image: grafana/grafana:latest
+  #   container_name: trading-app-grafana
+  #   
+  #   environment:
+  #     GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+  #     GF_INSTALL_PLUGINS: grafana-piechart-panel
+  #   
+  #   volumes:
+  #     - grafana-data:/var/lib/grafana
+  #     - ./grafana/provisioning:/etc/grafana/provisioning:ro
+  #   
+  #   ports:
+  #     - "3000:3000"
+  #   
+  #   depends_on:
+  #     - prometheus
+  #   
+  #   networks:
+  #     - trading-app-network
+
+# ============================================================================
+# VOLUMES
+# ============================================================================
+
+volumes:
+  # redis-data:
+  #   driver: local
+  # prometheus-data:
+  #   driver: local
+  # grafana-data:
+  #   driver: local
+
+# ============================================================================
+# NETWORKS
+# ============================================================================
+
+networks:
+  trading-app-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# ============================================================================
+# ENVIRONMENT VARIABLES
+# ============================================================================
+#
+# Required Environment Variables:
+# - DOCKER_USERNAME          Docker Hub username
+# - DOCKER_REGISTRY          Docker registry (default: docker.io)
+# - IMAGE_TAG                Docker image tag (default: latest)
+# - APP_VERSION              Application version
+# - API_URL                  Backend API URL
+# - NODE_ENV                 Node environment (production)
+#
+# Optional Environment Variables:
+# - ANALYTICS_ENABLED        Enable analytics (true/false)
+# - ANALYTICS_ENDPOINT       Analytics endpoint URL
+# - SENTRY_DSN               Sentry error tracking DSN
+# - DATABASE_URL             PostgreSQL connection string
+# - REDIS_PASSWORD           Redis password
+# - JWT_SECRET               JWT secret key
+# - API_KEY                  API key for backend
+# - GRAFANA_PASSWORD         Grafana admin password
+#
+# Example .env file:
+# ─────────────────────────────────────────────
+# DOCKER_USERNAME=myusername
+# IMAGE_TAG=1.0.0
+# APP_VERSION=1.0.0
+# API_URL=https://api.example.com
+# ANALYTICS_ENABLED=true
+# NODE_ENV=production
+#
+# ============================================================================
+# USAGE
+# ============================================================================
+#
+# Load environment variables:
+#   export $(cat .env.production | xargs)
+#
+# Start all services:
+#   docker-compose up -d
+#
+# View logs:
+#   docker-compose logs -f frontend
+#
+# Stop services:
+#   docker-compose stop
+#
+# Restart services:
+#   docker-compose restart
+#
+# Pull latest images:
+#   docker-compose pull
+#
+# Update and restart:
+#   docker-compose pull && docker-compose up -d
+#
+# Remove containers (keep volumes):
+#   docker-compose down
+#
+# Remove everything (including volumes):
+#   docker-compose down -v
+#
+# Scale frontend (if using Swarm):
+#   docker service scale frontend=3
+#
+# Monitor metrics:
+#   docker stats
+#
+# Check container health:
+#   docker-compose ps
+#
+# ============================================================================

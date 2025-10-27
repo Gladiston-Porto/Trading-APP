@@ -1,0 +1,35 @@
+{
+  "name": "app-trade",
+  "version": "1.0.0",
+  "description": "Sistema de Trading/Swing para B3 - Full-stack TypeScript + Quant Dev",
+  "author": "Gladiston Porto",
+  "license": "MIT",
+  "private": true,
+  "packageManager": "pnpm@8.0.0",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "pnpm --parallel run dev",
+    "build": "pnpm --parallel run build",
+    "start": "pnpm -F backend start",
+    "test": "pnpm --parallel run test",
+    "test:coverage": "pnpm --parallel run test:coverage",
+    "lint": "pnpm --parallel run lint",
+    "format": "pnpm --parallel run format",
+    "db:push": "pnpm -F backend db:push",
+    "db:migrate": "pnpm -F backend db:migrate",
+    "db:studio": "pnpm -F backend db:studio",
+    "seed": "pnpm -F backend seed",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "docker:clean": "docker-compose down -v"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^7.1.12"
+  }
+}
