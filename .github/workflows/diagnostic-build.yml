@@ -1,0 +1,46 @@
+name: Diagnostic Build
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Install dependencies
+        run: npm install
+        working-directory: ./frontend
+      
+      - name: List npm scripts
+        run: cat package.json | grep -A 20 '"scripts"'
+        working-directory: ./frontend
+      
+      - name: Run linter
+        run: npm run lint
+        working-directory: ./frontend
+        continue-on-error: true
+      
+      - name: Type check
+        run: npm run type-check
+        working-directory: ./frontend
+        continue-on-error: true
+      
+      - name: Run tests
+        run: npm run test:run
+        working-directory: ./frontend
+        continue-on-error: true
+      
+      - name: Build application
+        run: npm run build
+        working-directory: ./frontend
+        continue-on-error: true
