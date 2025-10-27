@@ -24,6 +24,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Ensure package-lock.json exists
+        run: |
+          if [ ! -f ./package-lock.json ]; then
+            echo "Copying frontend/package-lock.json to root..."
+            cp ./frontend/package-lock.json ./package-lock.json
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
