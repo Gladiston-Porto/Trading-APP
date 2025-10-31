@@ -170,7 +170,7 @@ export const Login: React.FC<LoginProps> = ({ onSuccess }) => {
         {/* Footer - Responsive text sizing */}
         <div className="mt-8 text-center">
           <p className="text-xs md:text-sm text-gray-600 dark:text-gray-400">
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
             <a href="/register" className="font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300">
               Sign up
             </a>
