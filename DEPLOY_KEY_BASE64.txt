@@ -1,0 +1,20 @@
+🔐 DEPLOY KEY (Base64) - PARA GITHUB SECRET
+═══════════════════════════════════════════════════════════════════════════════
+
+Use EXATAMENTE este valor para o secret "DEPLOY_KEY":
+
+LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVU
+FBQUFFYm05dVpRQUFBQUFBQUFBQkFBQUFNd0FBQUF0emMyZ3RaVwpReU5UVXhPUUFBQUNEN2dTTkRPN29NVHdkckZvaHRzNjhpUFFvalVoT3Q3bmNlMURmT09jSGdrUUFBQUpqN2MrcDIrM1BxCmRnQUFBQXR6YzJndFpXUXlOVFV4T1FBQUFDRDdnU05ETzdvTVR3ZHJGb2h0czY4aVBRb2pVaE90N25jZTFEZk9PY0hna1EKQUFBRUFSelF0Vk80ODFhakNHR0NoSEl5aHdqV3Z2bDhjU0Q4NGtxSDNFOUJCZm5mdUJJME03dWd4UEIyc1dpRzJ6cnlJOQpDaU5TRTYzdWR4N1VOODQ1d2VDUkFBQUFFblJ5WVdScGJtY3RZWEJ3TFdSbGNHeHZlUUVDQXc9PQotLS0tLUVORCBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0K
+
+═══════════════════════════════════════════════════════════════════════════════
+
+PASSOS:
+
+1. Copie TODA essa string (começando em LS0t até K0)
+2. Acesse: https://github.com/Gladiston-Porto/Trading-APP/settings/secrets/actions
+3. Clique "New repository secret"
+4. Nome: DEPLOY_KEY
+5. Valor: [Cola a string acima]
+6. Click "Add secret"
+
+═══════════════════════════════════════════════════════════════════════════════
