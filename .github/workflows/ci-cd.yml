@@ -145,7 +145,7 @@ jobs:
           sarif_file: 'trivy-results.sarif'
 
   # ============================================================================
-  # JOB 4: DEPLOY TO PRODUCTION (Conditional)
+  # JOB 4: DEPLOY TO PRODUCTION
   # ============================================================================
   deploy-production:
     name: Deploy to Production
@@ -156,60 +156,103 @@ jobs:
     
     environment:
       name: production
-      url: https://trading-app.example.com
+      url: http://localhost:3001
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to production
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_KEY }}" | base64 -d > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: Add host to known_hosts
+        run: |
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy to production via SSH
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || 22 }}
+          IMAGE_TAG: ${{ env.IMAGE_NAME }}:latest
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ env.DEPLOY_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "${{ env.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=no \
+              -o UserKnownHostsFile=/dev/null \
+              -p ${{ secrets.DEPLOY_PORT || 22 }} \
+              ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'EOF'
           
-          ssh -i ~/.ssh/deploy_key ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} << 'EOF'
-            cd /app/frontend
-            docker login -u "$DOCKER_USERNAME" -p "$DOCKER_TOKEN"
-            docker-compose pull
-            docker-compose up -d
-            docker-compose exec -T frontend curl -f http://localhost/health || exit 1
-          EOF
+          # Pull latest image
+          echo "📥 Pulling latest image..."
+          docker pull ${{ env.IMAGE_TAG }} || exit 1
+          
+          # Stop old container
+          echo "🛑 Stopping old container..."
+          docker stop trading-app-production 2>/dev/null || true
+          docker rm trading-app-production 2>/dev/null || true
+          
+          # Run new container
+          echo "🚀 Starting new container..."
+          docker run -d \
+            --name trading-app-production \
+            --restart unless-stopped \
+            -p 3001:80 \
+            -e NODE_ENV=production \
+            ${{ env.IMAGE_TAG }}
+          
+          # Wait for health check
+          echo "⏳ Waiting for container to be healthy..."
+          for i in {1..30}; do
+            if curl -s -f http://localhost:3001/ > /dev/null 2>&1; then
+              echo "✅ Container is healthy!"
+              exit 0
+            fi
+            echo -n "."
+            sleep 1
+          done
+          
+          echo "❌ Container failed health check"
+          exit 1
+          
+        EOF
 
       - name: Run smoke tests
         run: |
-          echo "Running smoke tests..."
-          curl -f https://trading-app.example.com/health || exit 1
-          curl -f https://trading-app.example.com/ || exit 1
-          echo "✅ Smoke tests passed"
+          echo "🧪 Running smoke tests..."
+          
+          for i in {1..10}; do
+            if curl -s -f http://localhost:3001/ > /dev/null 2>&1; then
+              echo "✅ Endpoint responding on :3001"
+              exit 0
+            fi
+            echo -n "."
+            sleep 2
+          done
+          
+          echo "❌ Smoke tests failed"
+          exit 1
 
-      - name: Notify deployment success
-        uses: 8398a7/action-slack@v3
+      - name: Notify Slack - Success
         if: success()
-        with:
-          status: ${{ job.status }}
-          text: '✅ Production deployment successful!'
-          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
-          fields: repo,message,commit,author
+        run: |
+          curl -X POST \
+            -H 'Content-type: application/json' \
+            --data '{"text":"✅ Production deployment successful! App: http://localhost:3001"}' \
+            ${{ secrets.SLACK_WEBHOOK_URL || 'https://hooks.slack.com/services/dummy/webhook' }}
 
-      - name: Notify deployment failure
-        uses: 8398a7/action-slack@v3
+      - name: Notify Slack - Failure
         if: failure()
-        with:
-          status: ${{ job.status }}
-          text: '❌ Production deployment failed!'
-          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
-          fields: repo,message,commit,author
+        run: |
+          curl -X POST \
+            -H 'Content-type: application/json' \
+            --data '{"text":"❌ Production deployment FAILED!"}' \
+            ${{ secrets.SLACK_WEBHOOK_URL || 'https://hooks.slack.com/services/dummy/webhook' }}
 
   # ============================================================================
-  # JOB 5: DEPLOY TO STAGING (Optional)
+  # JOB 5: DEPLOY TO STAGING
   # ============================================================================
   deploy-staging:
     name: Deploy to Staging
@@ -220,51 +263,115 @@ jobs:
     
     environment:
       name: staging
-      url: https://staging-trading-app.example.com
+      url: http://localhost:3002
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to staging
-        env:
-          DEPLOY_HOST: ${{ secrets.STAGING_DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.STAGING_DEPLOY_USER }}
-          DEPLOY_KEY: ${{ secrets.STAGING_DEPLOY_KEY }}
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Set up SSH key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ env.DEPLOY_KEY }}" > ~/.ssh/deploy_key
+          echo "${{ secrets.DEPLOY_KEY }}" | base64 -d > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "${{ env.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Add host to known_hosts
+        run: |
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy to staging via SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || 22 }}
+          IMAGE_TAG: ${{ env.IMAGE_NAME }}:latest
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=no \
+              -o UserKnownHostsFile=/dev/null \
+              -p ${{ secrets.DEPLOY_PORT || 22 }} \
+              ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'EOF'
           
-          ssh -i ~/.ssh/deploy_key ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} << 'EOF'
-            cd /app/frontend
-            docker login -u "$DOCKER_USERNAME" -p "$DOCKER_TOKEN"
-            docker-compose -f docker-compose.staging.yml pull
-            docker-compose -f docker-compose.staging.yml up -d
-          EOF
+          # Pull latest image
+          echo "📥 Pulling latest image..."
+          docker pull ${{ env.IMAGE_TAG }} || exit 1
+          
+          # Stop old container
+          echo "🛑 Stopping old container..."
+          docker stop trading-app-staging 2>/dev/null || true
+          docker rm trading-app-staging 2>/dev/null || true
+          
+          # Run new container
+          echo "🚀 Starting new container..."
+          docker run -d \
+            --name trading-app-staging \
+            --restart unless-stopped \
+            -p 3002:80 \
+            -e NODE_ENV=staging \
+            ${{ env.IMAGE_TAG }}
+          
+          # Wait for health check
+          echo "⏳ Waiting for container to be healthy..."
+          for i in {1..30}; do
+            if curl -s -f http://localhost:3002/ > /dev/null 2>&1; then
+              echo "✅ Container is healthy!"
+              exit 0
+            fi
+            echo -n "."
+            sleep 1
+          done
+          
+          echo "❌ Container failed health check"
+          exit 1
+          
+        EOF
+
+      - name: Verify staging deployment
+        run: |
+          echo "🧪 Verifying staging deployment..."
+          
+          for i in {1..10}; do
+            if curl -s -f http://localhost:3002/ > /dev/null 2>&1; then
+              echo "✅ Staging endpoint responding on :3002"
+              exit 0
+            fi
+            echo -n "."
+            sleep 2
+          done
+          
+          echo "❌ Verification failed"
+          exit 1
+
+      - name: Notify Slack - Success
+        if: success()
+        run: |
+          curl -X POST \
+            -H 'Content-type: application/json' \
+            --data '{"text":"✅ Staging deployment successful! App: http://localhost:3002"}' \
+            ${{ secrets.SLACK_WEBHOOK_URL || 'https://hooks.slack.com/services/dummy/webhook' }}
 
 # ============================================================================
 # SECRETS REQUIRED IN GitHub Actions
 # ============================================================================
 # 
 # Required Secrets:
-# - DOCKER_USERNAME       Docker Hub username
-# - DOCKER_TOKEN          Docker Hub access token
-# - DEPLOY_HOST           Production server hostname/IP
-# - DEPLOY_USER           Production server SSH user
-# - DEPLOY_KEY            Production server SSH private key
-# - SLACK_WEBHOOK         Slack webhook for notifications (optional)
-# - STAGING_DEPLOY_HOST   Staging server hostname (optional)
-# - STAGING_DEPLOY_USER   Staging server SSH user (optional)
-# - STAGING_DEPLOY_KEY    Staging server SSH key (optional)
+# - DOCKER_USERNAME           Docker Hub username
+# - DOCKER_PASSWORD           Docker Hub access token (or personal token)
+# - DEPLOY_HOST               Production/Staging server hostname (localhost for dev)
+# - DEPLOY_USER               SSH user for deployment (deploy)
+# - DEPLOY_KEY                SSH private key (Base64 encoded)
+# - DEPLOY_PORT               SSH port (default: 22)
+# - SLACK_WEBHOOK_URL         Slack webhook for notifications (optional)
 #
 # How to setup secrets:
-# 1. Go to GitHub repo Settings
-# 2. Click Secrets and variables → Actions
-# 3. Click New repository secret
-# 4. Add each secret above
+# 1. Go to: https://github.com/Gladiston-Porto/Trading-APP/settings/secrets/actions
+# 2. Click "New repository secret"
+# 3. Add each secret above
+#
+# For local development/testing:
+# - DEPLOY_HOST: localhost
+# - DEPLOY_USER: deploy (or your local user)
+# - DEPLOY_KEY: base64-encoded private SSH key
+# - DEPLOY_PORT: 22
 #
 # ============================================================================

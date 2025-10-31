@@ -1,0 +1,52 @@
+version: '3.9'
+
+services:
+  # Servidor "PRODUCTION" (rodando localmente na porta 3001)
+  trading-app-prod:
+    image: gladistonporto/trading-app-frontend:latest
+    container_name: trading-app-production
+    ports:
+      - "3001:80"
+    environment:
+      NODE_ENV: production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - trading-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # Servidor "STAGING" (rodando localmente na porta 3002)
+  trading-app-staging:
+    image: gladistonporto/trading-app-frontend:latest
+    container_name: trading-app-staging
+    ports:
+      - "3002:80"
+    environment:
+      NODE_ENV: staging
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - trading-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+networks:
+  trading-network:
+    driver: bridge
