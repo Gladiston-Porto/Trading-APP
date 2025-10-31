@@ -173,21 +173,17 @@ jobs:
           ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Deploy to production via SSH
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || 22 }}
-          IMAGE_TAG: ${{ env.IMAGE_NAME }}:latest
         run: |
-          ssh -i ~/.ssh/deploy_key \
-              -o StrictHostKeyChecking=no \
-              -o UserKnownHostsFile=/dev/null \
-              -p ${{ secrets.DEPLOY_PORT || 22 }} \
-              ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'EOF'
+          # Create deploy script
+          cat > /tmp/deploy-prod.sh << 'DEPLOY_EOF'
+          #!/bin/bash
+          set -e
+          
+          IMAGE_TAG="${1}"
           
           # Pull latest image
           echo "📥 Pulling latest image..."
-          docker pull ${{ env.IMAGE_TAG }} || exit 1
+          docker pull "$IMAGE_TAG" || exit 1
           
           # Stop old container
           echo "🛑 Stopping old container..."
@@ -201,7 +197,7 @@ jobs:
             --restart unless-stopped \
             -p 3001:80 \
             -e NODE_ENV=production \
-            ${{ env.IMAGE_TAG }}
+            "$IMAGE_TAG"
           
           # Wait for health check
           echo "⏳ Waiting for container to be healthy..."
@@ -216,8 +212,11 @@ jobs:
           
           echo "❌ Container failed health check"
           exit 1
+          DEPLOY_EOF
           
-        EOF
+          chmod +x /tmp/deploy-prod.sh
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -P ${{ secrets.DEPLOY_PORT || 22 }} /tmp/deploy-prod.sh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/tmp/
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -p ${{ secrets.DEPLOY_PORT || 22 }} ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} /tmp/deploy-prod.sh "${{ env.IMAGE_NAME }}:latest"
 
       - name: Run smoke tests
         run: |
@@ -280,21 +279,17 @@ jobs:
           ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Deploy to staging via SSH
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || 22 }}
-          IMAGE_TAG: ${{ env.IMAGE_NAME }}:latest
         run: |
-          ssh -i ~/.ssh/deploy_key \
-              -o StrictHostKeyChecking=no \
-              -o UserKnownHostsFile=/dev/null \
-              -p ${{ secrets.DEPLOY_PORT || 22 }} \
-              ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'EOF'
+          # Create deploy script
+          cat > /tmp/deploy-staging.sh << 'DEPLOY_EOF'
+          #!/bin/bash
+          set -e
+          
+          IMAGE_TAG="${1}"
           
           # Pull latest image
           echo "📥 Pulling latest image..."
-          docker pull ${{ env.IMAGE_TAG }} || exit 1
+          docker pull "$IMAGE_TAG" || exit 1
           
           # Stop old container
           echo "🛑 Stopping old container..."
@@ -308,7 +303,7 @@ jobs:
             --restart unless-stopped \
             -p 3002:80 \
             -e NODE_ENV=staging \
-            ${{ env.IMAGE_TAG }}
+            "$IMAGE_TAG"
           
           # Wait for health check
           echo "⏳ Waiting for container to be healthy..."
@@ -323,8 +318,11 @@ jobs:
           
           echo "❌ Container failed health check"
           exit 1
+          DEPLOY_EOF
           
-        EOF
+          chmod +x /tmp/deploy-staging.sh
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -P ${{ secrets.DEPLOY_PORT || 22 }} /tmp/deploy-staging.sh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/tmp/
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -p ${{ secrets.DEPLOY_PORT || 22 }} ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} /tmp/deploy-staging.sh "${{ env.IMAGE_NAME }}:latest"
 
       - name: Verify staging deployment
         run: |
